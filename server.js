@@ -82,6 +82,15 @@ function fetchKickChatroomId(channelName) {
   });
 }
 
+// Classify a Kick viewer from their badge list.
+// Hierarchy: broadcaster > mod > subscriber > viewer
+function getKickRole(badges) {
+  if (badges.some(b => b.type === 'broadcaster'))                                         return 'broadcaster';
+  if (badges.some(b => b.type === 'moderator'))                                           return 'mod';
+  if (badges.some(b => ['subscriber','founder','og','sub_gifter'].includes(b.type)))      return 'subscriber';
+  return 'viewer';
+}
+
 async function connectKickChat() {
   if (!kickConfig.enabled || !kickConfig.channel) return;
 
@@ -144,11 +153,13 @@ async function connectKickChat() {
       case 'App\\Events\\ChatMessageEvent': {
         let chatData;
         try { chatData = JSON.parse(msg.data); } catch { return; }
+        const badges = chatData.sender?.identity?.badges || [];
         broadcastSSE({
           type:     'message',
           username: chatData.sender?.username || 'Anonymous',
           content:  chatData.content          || '',
           color:    chatData.sender?.identity?.color || '#53fc18',
+          role:     getKickRole(badges),
         });
         break;
       }
@@ -213,6 +224,18 @@ const server = http.createServer((req, res) => {
   // ── API: list FBX files in animate/ folder ───────────────
   if (urlPath === '/api/files/animate') {
     const files = listFbx(path.join(ROOT, 'animate'));
+    const body  = JSON.stringify(files);
+    res.writeHead(200, {
+      'Content-Type':   'application/json',
+      'Content-Length': Buffer.byteLength(body),
+      'Access-Control-Allow-Origin': '*',
+    });
+    return res.end(body);
+  }
+
+  // ── API: list FBX files in subs/ folder ──────────────────
+  if (urlPath === '/api/files/subs') {
+    const files = listFbx(path.join(ROOT, 'subs'));
     const body  = JSON.stringify(files);
     res.writeHead(200, {
       'Content-Type':   'application/json',
