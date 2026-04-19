@@ -798,10 +798,22 @@ window.toggleDrawer = function () {
 };
 
 window.toggleChat = function () {
-  const panel  = document.getElementById('chat-panel');
-  const reopen = document.getElementById('chat-reopen');
-  const hidden = panel.classList.toggle('collapsed');
+  const panel    = document.getElementById('chat-panel');
+  const reopen   = document.getElementById('chat-reopen');
+  const hidden   = panel.classList.toggle('collapsed');
   reopen.classList.toggle('visible', hidden);
+
+  // After the CSS transition (300 ms) finishes, resize the Three.js renderer
+  // so it fills the now-wider viewport instead of leaving a black gap.
+  setTimeout(() => {
+    if (!renderer) return;
+    const vp = document.getElementById('viewport');
+    const w  = vp.clientWidth;
+    const h  = vp.clientHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+  }, 310);
 };
 
 /* ================================================================
