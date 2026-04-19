@@ -141,6 +141,33 @@
       pointer-events: none;
     }
 
+    /* ── Chat toggle tab (shown when chat is hidden) ── */
+    #chat-reopen {
+      position: fixed;
+      right: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(15,15,26,0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-right: none;
+      border-radius: 10px 0 0 10px;
+      color: rgba(255,255,255,0.7);
+      padding: 14px 8px;
+      cursor: pointer;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      z-index: 20;
+      transition: background 0.2s;
+      writing-mode: vertical-rl;
+      font-size: 12px;
+      letter-spacing: 1px;
+    }
+    #chat-reopen:hover { background: rgba(99,102,241,0.3); }
+    #chat-reopen.visible { display: flex; }
+
     /* ── Chat Panel ── */
     #chat-panel {
       width: 360px;
@@ -149,6 +176,14 @@
       background: rgba(255,255,255,0.03);
       border-left: 1px solid rgba(255,255,255,0.07);
       flex-shrink: 0;
+      transition: width 0.3s ease, opacity 0.3s ease;
+      overflow: hidden;
+    }
+    #chat-panel.collapsed {
+      width: 0;
+      opacity: 0;
+      pointer-events: none;
+      border-left: none;
     }
 
     #chat-header {
@@ -329,14 +364,23 @@
     <div id="cam-hint">Drag to orbit · Scroll to zoom</div>
   </div>
 
+  <!-- Chat reopen tab (visible when chat is collapsed) -->
+  <button id="chat-reopen" onclick="toggleChat()" title="Open chat">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+    Chat
+  </button>
+
   <!-- Chat Panel -->
   <div id="chat-panel">
     <div id="chat-header">
       <div class="status-dot"></div>
-      <div>
-        <div class="header-name">AnimatedChar</div>
+      <div style="flex:1">
+        <div class="header-name">VoxBuddy</div>
         <div class="header-sub">Type a command to animate</div>
       </div>
+      <button id="chat-collapse-btn" onclick="toggleChat()" title="Hide chat" style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.4);padding:4px;display:flex;align-items:center;transition:color 0.2s;" onmouseover="this.style.color='rgba(255,255,255,0.9)'" onmouseout="this.style.color='rgba(255,255,255,0.4)'">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
     </div>
 
     <div id="chat-messages"></div>
@@ -680,6 +724,18 @@ window.sendMessage = function () {
       return;
     }
 
+    // Built-in: "!commands" lists all available commands
+    if (/^!commands?$/i.test(text)) {
+      const cmds = Object.keys(cmdMap);
+      addMsg(
+        cmds.length
+          ? `Available commands:\n${cmds.map(cmdLabel).join(', ')}`
+          : 'No commands loaded — add FBX files to animate/ and reload.',
+        'sys'
+      );
+      return;
+    }
+
     const cmd = parseCommand(text);
     if (cmd && playCmd(cmd)) {
       addMsg(cmdMap[cmd].response, 'char');
@@ -700,6 +756,11 @@ inputEl.addEventListener('keydown', e => { if (e.key === 'Enter') window.sendMes
 /* ================================================================
    COMMANDS DRAWER
    ================================================================ */
+// Turn a command key into a readable label: "standing walk" → "Standing Walk"
+function cmdLabel(cmd) {
+  return cmd.replace(/\b\w/g, c => c.toUpperCase());
+}
+
 function buildDrawer() {
   const drawer  = document.getElementById('commands-drawer');
   const hintBar = document.getElementById('cmd-hint-bar');
@@ -715,8 +776,9 @@ function buildDrawer() {
   } else {
     cmds.forEach(cmd => {
       const chip = document.createElement('div');
-      chip.className = 'cmd-chip';
-      chip.textContent = cmd;
+      chip.className   = 'cmd-chip';
+      chip.textContent = cmdLabel(cmd);
+      chip.title       = cmd;
       chip.onclick = () => {
         inputEl.value = cmd;
         window.sendMessage();
@@ -727,12 +789,19 @@ function buildDrawer() {
   }
 
   hintBar.textContent = cmds.length
-    ? `Try: ${cmds.slice(0, 4).join(', ')}${cmds.length > 4 ? '…' : ''}`
+    ? `Commands: ${cmds.map(cmdLabel).join(', ')}`
     : 'No commands loaded — add FBX files to animate/';
 }
 
 window.toggleDrawer = function () {
   document.getElementById('commands-drawer').classList.toggle('open');
+};
+
+window.toggleChat = function () {
+  const panel  = document.getElementById('chat-panel');
+  const reopen = document.getElementById('chat-reopen');
+  const hidden = panel.classList.toggle('collapsed');
+  reopen.classList.toggle('visible', hidden);
 };
 
 /* ================================================================
@@ -806,7 +875,8 @@ async function main() {
         const fbx = await loadFBX('animate/' + file).catch(() => null);
         if (fbx && fbx.animations.length > 0) {
           const cmd    = file.replace(/\.fbx$/i, '').toLowerCase().trim();
-          const isLoop = /walk|run|dance|loop/i.test(file);
+          const baseName = file.replace(/\.fbx$/i, '').trim();
+          const isLoop   = /^(walk|run|dance|loop)/i.test(baseName) || /\bloop$/i.test(baseName);
           const clip   = fbx.animations[0];
 
           // Fix Mixamo track names
