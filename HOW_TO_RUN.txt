@@ -1,0 +1,49 @@
+AnimatedChar — Setup Guide
+==========================
+
+1. ADD YOUR FILES
+   ├── character.fbx          ← drop your character FBX here (root of project)
+   └── animate/
+       ├── idle.fbx
+       ├── clap.fbx
+       ├── wave.fbx
+       ├── dance.fbx
+       ├── jump.fbx
+       └── ...                ← any animation FBX from Mixamo or your tool
+
+   Bone names must match between character.fbx and the animation files
+   (Mixamo characters + Mixamo animations work out of the box).
+
+2. EDIT THE CONFIG (in index.html, around line 110)
+   Add/remove entries in the `animations` object to match your FBX files:
+
+     'clap': { file: 'animate/clap.fbx', response: 'Yay! 👏', loop: false },
+
+   Adjust `scale` (default 0.01) if the character appears huge or tiny.
+
+3. RUN A LOCAL SERVER (required — browsers block local file:// FBX loading)
+
+   Option A – Python (built-in, no install needed):
+     cd /path/to/AnimatedChar
+     python3 -m http.server 8080
+     → open http://localhost:8080
+
+   Option B – Node (npx, no install needed):
+     cd /path/to/AnimatedChar
+     npx serve .
+     → open the URL shown in the terminal
+
+   Option C – VS Code Live Server extension:
+     Right-click index.html → "Open with Live Server"
+
+4. USE THE APP
+   • Type any command in the chat (e.g. "clap", "dance", "wave")
+   • Click the ⚡ Commands button to see all loaded animations as chips
+   • Drag / scroll the 3D viewport to orbit the camera
+   • One-shot animations return to idle automatically after finishing
+
+NOTES
+   • Missing animation files are silently skipped — the app still loads.
+   • The character FBX is expected at the project root by default.
+     Change `CONFIG.character.file` in index.html if yours is elsewhere.
+   • Works with Mixamo FBX (both "With Skin" character and animation-only files).

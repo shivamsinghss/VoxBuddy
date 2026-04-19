@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AnimatedChar</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f0f1a;
+      color: #fff;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Loading Screen ── */
+    #loading-screen {
+      position: fixed;
+      inset: 0;
+      background: #0f0f1a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      gap: 18px;
+      transition: opacity 0.6s ease;
+    }
+    #loading-screen.fade-out { opacity: 0; pointer-events: none; }
+
+    .loader-logo {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: 4px;
+      background: linear-gradient(135deg, #a78bfa, #6366f1, #38bdf8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .loader-bar-wrap {
+      width: 240px;
+      height: 3px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    #loader-bar {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #6366f1, #a78bfa);
+      border-radius: 2px;
+      transition: width 0.35s ease;
+    }
+    #loader-status {
+      font-size: 12px;
+      color: rgba(255,255,255,0.4);
+      letter-spacing: 1px;
+    }
+
+    /* ── App Layout ── */
+    #app {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* ── Viewport ── */
+    #viewport {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #three-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* Commands overlay */
+    #commands-btn {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      background: rgba(15,15,26,0.75);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px;
+      color: rgba(255,255,255,0.8);
+      font-size: 13px;
+      padding: 7px 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: border-color 0.2s;
+      z-index: 10;
+    }
+    #commands-btn:hover { border-color: rgba(99,102,241,0.6); }
+
+    #commands-drawer {
+      position: absolute;
+      top: 52px;
+      left: 16px;
+      background: rgba(15,15,26,0.85);
+      backdrop-filter: blur(14px);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 14px;
+      padding: 14px;
+      display: none;
+      flex-wrap: wrap;
+      gap: 7px;
+      max-width: 300px;
+      z-index: 10;
+    }
+    #commands-drawer.open { display: flex; }
+
+    .cmd-chip {
+      background: rgba(99,102,241,0.2);
+      border: 1px solid rgba(99,102,241,0.4);
+      color: rgba(255,255,255,0.85);
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .cmd-chip:hover {
+      background: rgba(99,102,241,0.45);
+      border-color: rgba(99,102,241,0.7);
+    }
+
+    /* Camera controls hint */
+    #cam-hint {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      font-size: 11px;
+      color: rgba(255,255,255,0.2);
+      pointer-events: none;
+    }
+
+    /* ── Chat Panel ── */
+    #chat-panel {
+      width: 360px;
+      display: flex;
+      flex-direction: column;
+      background: rgba(255,255,255,0.03);
+      border-left: 1px solid rgba(255,255,255,0.07);
+      flex-shrink: 0;
+    }
+
+    #chat-header {
+      padding: 16px 20px;
+      background: rgba(255,255,255,0.04);
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4ade80;
+      flex-shrink: 0;
+      animation: blink 2.4s infinite;
+    }
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .header-name {
+      font-size: 15px;
+      font-weight: 600;
+      flex: 1;
+    }
+    .header-sub {
+      font-size: 11px;
+      color: rgba(255,255,255,0.35);
+    }
+
+    #chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      scroll-behavior: smooth;
+    }
+    #chat-messages::-webkit-scrollbar { width: 3px; }
+    #chat-messages::-webkit-scrollbar-track { background: transparent; }
+    #chat-messages::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.15);
+      border-radius: 3px;
+    }
+
+    .msg {
+      padding: 9px 13px;
+      border-radius: 16px;
+      font-size: 13.5px;
+      line-height: 1.5;
+      max-width: 82%;
+      animation: msgIn 0.25s ease forwards;
+      word-break: break-word;
+    }
+    @keyframes msgIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .msg.user {
+      align-self: flex-end;
+      background: #5b5fc7;
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .msg.char {
+      align-self: flex-start;
+      background: rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.9);
+      border-bottom-left-radius: 4px;
+    }
+    .msg.sys {
+      align-self: center;
+      background: rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.4);
+      font-size: 11.5px;
+      border-radius: 10px;
+      padding: 5px 12px;
+      max-width: 95%;
+    }
+
+    /* Typing dots */
+    .typing-bubble {
+      align-self: flex-start;
+      background: rgba(255,255,255,0.1);
+      padding: 11px 14px;
+      border-radius: 16px;
+      border-bottom-left-radius: 4px;
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+    .tdot {
+      width: 6px;
+      height: 6px;
+      background: rgba(255,255,255,0.5);
+      border-radius: 50%;
+      animation: tdot 1.3s infinite;
+    }
+    .tdot:nth-child(2) { animation-delay: 0.18s; }
+    .tdot:nth-child(3) { animation-delay: 0.36s; }
+    @keyframes tdot {
+      0%, 80%, 100% { transform: scale(1); opacity: 0.5; }
+      40% { transform: scale(1.3); opacity: 1; }
+    }
+
+    /* Input area */
+    #chat-footer {
+      padding: 12px 14px;
+      border-top: 1px solid rgba(255,255,255,0.07);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    #cmd-hint-bar {
+      font-size: 11px;
+      color: rgba(255,255,255,0.28);
+      padding: 0 4px;
+    }
+    #input-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    #chat-input {
+      flex: 1;
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 22px;
+      padding: 9px 16px;
+      color: #fff;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    #chat-input::placeholder { color: rgba(255,255,255,0.3); }
+    #chat-input:focus { border-color: rgba(99,102,241,0.6); }
+    #send-btn {
+      width: 38px;
+      height: 38px;
+      background: #5b5fc7;
+      border: none;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.15s, transform 0.1s;
+    }
+    #send-btn:hover { background: #4f46e5; }
+    #send-btn:active { transform: scale(0.93); }
+  </style>
+</head>
+<body>
+
+<!-- Loading Screen -->
+<div id="loading-screen">
+  <div class="loader-logo">ANIMATEDCHAR</div>
+  <div class="loader-bar-wrap"><div id="loader-bar"></div></div>
+  <div id="loader-status">Initializing renderer…</div>
+</div>
+
+<!-- Main App -->
+<div id="app">
+  <!-- 3D Viewport -->
+  <div id="viewport">
+    <canvas id="three-canvas"></canvas>
+
+    <button id="commands-btn" onclick="toggleDrawer()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+      Commands
+    </button>
+    <div id="commands-drawer"></div>
+
+    <div id="cam-hint">Drag to orbit · Scroll to zoom</div>
+  </div>
+
+  <!-- Chat Panel -->
+  <div id="chat-panel">
+    <div id="chat-header">
+      <div class="status-dot"></div>
+      <div>
+        <div class="header-name">AnimatedChar</div>
+        <div class="header-sub">Type a command to animate</div>
+      </div>
+    </div>
+
+    <div id="chat-messages"></div>
+
+    <div id="chat-footer">
+      <div id="cmd-hint-bar">Loading…</div>
+      <div id="input-row">
+        <input id="chat-input" type="text" placeholder="Type a command…" autocomplete="off" spellcheck="false">
+        <button id="send-btn" onclick="sendMessage()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Three.js via importmap (no build tools needed) -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+    "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { FBXLoader }     from 'three/examples/jsm/loaders/FBXLoader.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+/* ================================================================
+   CONFIG  —  tweak these values if the character looks off
+   ================================================================ */
+const CONFIG = {
+  scale:        0.01,    // Mixamo "with skin" FBX needs 0.01
+  positionY:   -1.0,    // raise / lower the character on stage
+  idleReturnMs: 2000,   // ms after a one-shot ends before returning to idle
+  background:  'background.jpg',   // image file in project root (jpg/png). Set null for solid color.
+};
+
+/* ================================================================
+   STATE
+   ================================================================ */
+let scene, camera, renderer, controls;
+let mixer, currentAction;
+const clock             = new THREE.Clock();
+const idleClips         = [];   // pool of AnimationClips for random idle
+const cmdMap            = {};   // { 'wave': { clip, loop, response }, … }
+const characterBoneNames = new Set(); // bone/node names in the loaded character
+let idleTimer      = null;
+let idleCycleTimer = null;  // fires every 30 s to swap idle animation
+let isIdling       = false; // true while in idle state
+let appReady       = false;
+
+/* ================================================================
+   SCENE INIT
+   ================================================================ */
+function initScene() {
+  const canvas   = document.getElementById('three-canvas');
+  const viewport = document.getElementById('viewport');
+  const W = viewport.clientWidth;
+  const H = viewport.clientHeight;
+
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(W, H);
+  renderer.shadowMap.enabled   = true;
+  renderer.shadowMap.type      = THREE.PCFSoftShadowMap;
+  renderer.outputColorSpace    = THREE.SRGBColorSpace;
+  renderer.toneMapping         = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.1;
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0f0f1a);
+  scene.fog = new THREE.FogExp2(0x0f0f1a, 0.035);
+
+  // Background image (loads async; falls back to solid color if file missing)
+  if (CONFIG.background) {
+    new THREE.TextureLoader().load(
+      CONFIG.background,
+      (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        scene.background = tex;
+        scene.fog = null;   // fog looks odd over a photo background
+      },
+      undefined,
+      () => console.warn('[AnimatedChar] Background image not found:', CONFIG.background)
+    );
+  }
+
+  camera = new THREE.PerspectiveCamera(42, W / H, 0.1, 150);
+  camera.position.set(0, 1.6, 5.5);
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 1.1, 0);
+  controls.enableDamping  = true;
+  controls.dampingFactor  = 0.07;
+  controls.minDistance    = 1.2;
+  controls.maxDistance    = 18;
+  controls.maxPolarAngle  = Math.PI * 0.54;
+  controls.update();
+
+  // Hemisphere fill
+  scene.add(new THREE.HemisphereLight(0x9090ff, 0x302018, 0.55));
+
+  // Key light with shadows
+  const key = new THREE.DirectionalLight(0xffffff, 1.6);
+  key.position.set(3.5, 7, 5);
+  key.castShadow = true;
+  key.shadow.mapSize.set(2048, 2048);
+  key.shadow.camera.near   = 0.5;
+  key.shadow.camera.far    = 25;
+  key.shadow.camera.left   = -4;
+  key.shadow.camera.right  = 4;
+  key.shadow.camera.top    = 5;
+  key.shadow.camera.bottom = -2;
+  key.shadow.bias = -0.0003;
+  scene.add(key);
+
+  // Rim / back light
+  const rim = new THREE.DirectionalLight(0x8080ff, 0.55);
+  rim.position.set(-4, 4, -4);
+  scene.add(rim);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+
+  // Render loop
+  let ringDir = 1;
+  (function loop() {
+    requestAnimationFrame(loop);
+    const delta = clock.getDelta();
+    if (mixer) mixer.update(delta);
+    controls.update();
+    renderer.render(scene, camera);
+  })();
+
+  window.addEventListener('resize', () => {
+    const w = viewport.clientWidth, h = viewport.clientHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+  });
+}
+
+/* ================================================================
+   HELPERS
+   ================================================================ */
+function setStatus(text, pct) {
+  document.getElementById('loader-status').textContent = text;
+  document.getElementById('loader-bar').style.width = pct + '%';
+}
+
+function loadFBX(url) {
+  return new Promise((resolve, reject) =>
+    new FBXLoader().load(url, resolve, undefined, reject)
+  );
+}
+
+async function fetchList(apiUrl) {
+  const res = await fetch(apiUrl);
+  if (!res.ok) throw new Error('Cannot fetch ' + apiUrl);
+  return res.json();
+}
+
+// Normalize animation clip track names so they match the loaded character's
+// Returns true for T-pose / bind-pose clips that should never be played.
+// Mixamo embeds these as near-zero-duration reference frames.
+function isTPoseClip(clip) {
+  if (clip.duration < 0.1) return true;
+  if (/t[\s_-]?pose|bind[\s_-]?pose/i.test(clip.name)) return true;
+  return false;
+}
+
+// bone hierarchy. Handles two Mixamo naming styles:
+//   New: "Armature|mixamorigHips.quaternion"  →  "mixamorigHips.quaternion"
+//   Old: "Armature|mixamorig:Hips.quaternion" →  "mixamorigHips.quaternion"
+function fixClipTracks(clip) {
+  clip.tracks.forEach(track => {
+    // Step 1 – strip "TakeName|" prefix
+    let name = track.name.replace(/^[^|]*\|/, '');
+
+    // Step 2 – if the bone can't be found in the character, try removing
+    //           the colon that old Mixamo exports insert ("mixamorig:Hips")
+    if (characterBoneNames.size > 0) {
+      const dot  = name.lastIndexOf('.');
+      if (dot !== -1) {
+        const prop = name.slice(dot);          // e.g. ".quaternion"
+        let   bone = name.slice(0, dot);       // e.g. "mixamorig:Hips"
+        if (!characterBoneNames.has(bone)) {
+          const noColon = bone.replace(':', '');
+          if (characterBoneNames.has(noColon)) bone = noColon;
+        }
+        name = bone + prop;
+      }
+    }
+
+    track.name = name;
+  });
+}
+
+// Map common command names to a friendly chat response
+const RESPONSES = {
+  wave:    'Hello there! 👋',
+  clap:    'Yay! 👏',
+  dance:   "Let's dance! 🕺",
+  jump:    'Wheee! 🤸',
+  run:     '🏃 Running!',
+  walk:    '🚶 Walking…',
+  sit:     'Taking a seat…',
+  happy:   'So happy! 😄',
+  sad:     '😢',
+  angry:   'Grr! 😠',
+  laugh:   'Hahaha! 😂',
+  think:   'Hmm, let me think… 🤔',
+  victory: 'Yes! Victory! 🏆',
+};
+
+/* ================================================================
+   ANIMATION PLAYBACK
+   ================================================================ */
+function crossFadeTo(clip, loop) {
+  if (!mixer || !clip) return;
+  const action = mixer.clipAction(clip);
+  action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+  action.clampWhenFinished = !loop;
+  if (currentAction && currentAction !== action) {
+    action.reset().play();
+    currentAction.crossFadeTo(action, 0.35, true);
+  } else {
+    action.reset().play();
+  }
+  currentAction = action;
+}
+
+// Pick a random idle animation and loop it; reschedule swap every 30 s
+function enterIdle() {
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+  if (idleCycleTimer) { clearTimeout(idleCycleTimer); idleCycleTimer = null; }
+  console.log('[AnimatedChar] enterIdle called, idleClips:', idleClips.length);
+  if (!mixer || idleClips.length === 0) {
+    console.warn('[AnimatedChar] No idle clips available!');
+    return;
+  }
+  // Pick a different clip than the one currently playing (if multiple exist)
+  let clip;
+  if (idleClips.length > 1 && currentAction) {
+    const others = idleClips.filter(c => c !== currentAction.getClip());
+    clip = others[Math.floor(Math.random() * others.length)];
+  } else {
+    clip = idleClips[Math.floor(Math.random() * idleClips.length)];
+  }
+  console.log('[AnimatedChar] Playing idle clip:', clip.name, 'duration:', clip.duration);
+  crossFadeTo(clip, true);
+  isIdling = true;
+
+  // Auto-swap to another idle animation after 30 s (only while still idling)
+  if (idleClips.length > 1) {
+    idleCycleTimer = setTimeout(() => {
+      if (isIdling) enterIdle();
+    }, 30000);
+  }
+}
+
+// Play a command animation; return false if unknown
+function playCmd(cmd) {
+  const entry = cmdMap[cmd];
+  if (!mixer || !entry) return false;
+
+  isIdling = false;
+  if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+  if (idleCycleTimer) { clearTimeout(idleCycleTimer); idleCycleTimer = null; }
+  crossFadeTo(entry.clip, entry.loop);
+
+  // One-shot: schedule return to idle after the clip finishes
+  if (!entry.loop) {
+    idleTimer = setTimeout(enterIdle, entry.clip.duration * 1000 + CONFIG.idleReturnMs);
+  }
+  return true;
+}
+
+/* ================================================================
+   CHAT SYSTEM
+   ================================================================ */
+const msgsEl  = document.getElementById('chat-messages');
+const inputEl = document.getElementById('chat-input');
+
+function scrollBottom() { msgsEl.scrollTop = msgsEl.scrollHeight; }
+
+function addMsg(text, type) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + type;
+  el.textContent = text;
+  msgsEl.appendChild(el);
+  scrollBottom();
+}
+
+let typingBubble = null;
+function showTyping() {
+  if (typingBubble) return;
+  typingBubble = document.createElement('div');
+  typingBubble.className = 'typing-bubble';
+  typingBubble.innerHTML = '<div class="tdot"></div><div class="tdot"></div><div class="tdot"></div>';
+  msgsEl.appendChild(typingBubble);
+  scrollBottom();
+}
+function hideTyping() {
+  if (typingBubble) { typingBubble.remove(); typingBubble = null; }
+}
+
+// Fuzzy command parser: exact → contains → word-prefix
+function parseCommand(raw) {
+  const s    = raw.toLowerCase().trim();
+  const cmds = Object.keys(cmdMap);
+  if (cmds.includes(s)) return s;
+  const found = cmds.find(c => s.includes(c));
+  if (found) return found;
+  for (const w of s.split(/\s+/)) {
+    const fw = cmds.find(c => c.startsWith(w) && w.length >= 2);
+    if (fw) return fw;
+  }
+  return null;
+}
+
+window.sendMessage = function () {
+  const text = inputEl.value.trim();
+  if (!text || !appReady) return;
+  inputEl.value = '';
+  addMsg(text, 'user');
+  showTyping();
+
+  setTimeout(() => {
+    hideTyping();
+
+    // Built-in: "stop" / "idle" returns to idle
+    if (/^(stop|idle|rest|reset)$/i.test(text)) {
+      enterIdle();
+      addMsg('Back to idle… 😌', 'char');
+      return;
+    }
+
+    const cmd = parseCommand(text);
+    if (cmd && playCmd(cmd)) {
+      addMsg(cmdMap[cmd].response, 'char');
+    } else {
+      const avail = Object.keys(cmdMap);
+      addMsg(
+        avail.length
+          ? `I don't know "${text}". Try: ${avail.slice(0, 5).join(', ')}${avail.length > 5 ? '…' : ''}`
+          : `No commands loaded yet — add FBX files to the animate/ folder.`,
+        'char'
+      );
+    }
+  }, 450);
+};
+
+inputEl.addEventListener('keydown', e => { if (e.key === 'Enter') window.sendMessage(); });
+
+/* ================================================================
+   COMMANDS DRAWER
+   ================================================================ */
+function buildDrawer() {
+  const drawer  = document.getElementById('commands-drawer');
+  const hintBar = document.getElementById('cmd-hint-bar');
+  const cmds    = Object.keys(cmdMap);
+
+  drawer.innerHTML = '';
+
+  if (cmds.length === 0) {
+    const info = document.createElement('div');
+    info.style.cssText = 'color:rgba(255,255,255,0.4);font-size:12px;padding:2px 4px;';
+    info.textContent   = 'Add FBX files to animate/ to unlock commands';
+    drawer.appendChild(info);
+  } else {
+    cmds.forEach(cmd => {
+      const chip = document.createElement('div');
+      chip.className = 'cmd-chip';
+      chip.textContent = cmd;
+      chip.onclick = () => {
+        inputEl.value = cmd;
+        window.sendMessage();
+        drawer.classList.remove('open');
+      };
+      drawer.appendChild(chip);
+    });
+  }
+
+  hintBar.textContent = cmds.length
+    ? `Try: ${cmds.slice(0, 4).join(', ')}${cmds.length > 4 ? '…' : ''}`
+    : 'No commands loaded — add FBX files to animate/';
+}
+
+window.toggleDrawer = function () {
+  document.getElementById('commands-drawer').classList.toggle('open');
+};
+
+/* ================================================================
+   BOOTSTRAP
+   ================================================================ */
+async function main() {
+  initScene();
+  try {
+    // ── 1. Discover files ──────────────────────────────────
+    setStatus('Scanning folders…', 5);
+    const [idleFiles, animateFiles] = await Promise.all([
+      fetchList('/api/files/idle'),
+      fetchList('/api/files/animate'),
+    ]);
+
+    if (!idleFiles.length) {
+      throw new Error('No FBX files found in IDLE/ folder. Add at least one idle animation FBX.');
+    }
+
+    // ── 2. Load character from first IDLE FBX ─────────────
+    //    Mixamo "With Skin" FBX contains the mesh + an animation clip.
+    setStatus('Loading character…', 10);
+    const charFbx = await loadFBX('IDLE/' + idleFiles[0]);
+    charFbx.scale.setScalar(CONFIG.scale);
+    charFbx.position.set(0, CONFIG.positionY, 0);
+    charFbx.traverse(c => {
+      if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; }
+    });
+    scene.add(charFbx);
+    mixer = new THREE.AnimationMixer(charFbx);
+
+    // Build set of every named node in the character so fixClipTracks can
+    // resolve bone name mismatches (new vs old Mixamo naming conventions).
+    charFbx.traverse(node => { if (node.name) characterBoneNames.add(node.name); });
+
+    // Collect all animation clips from this FBX into idle pool
+    console.log('[AnimatedChar] charFbx.animations count:', charFbx.animations.length);
+    charFbx.animations.forEach((clip, i) => {
+      console.log(`  clip[${i}]: name="${clip.name}" duration=${clip.duration.toFixed(2)}s tracks=${clip.tracks.length}`);
+      if (isTPoseClip(clip)) {
+        console.log(`  → skipped (T-pose / bind-pose clip)`);
+        return;
+      }
+      fixClipTracks(clip);
+      idleClips.push(clip);
+    });
+
+    if (idleClips.length === 0) {
+      addMsg('No animation found in IDLE/ FBX — re-download from Mixamo with "With Skin" checked.', 'sys');
+    }
+
+    // ── 3. Load remaining IDLE FBXs ───────────────────────
+    if (idleFiles.length > 1) {
+      setStatus('Loading idle animations…', 30);
+      await Promise.all(idleFiles.slice(1).map(async file => {
+        const fbx = await loadFBX('IDLE/' + file).catch(() => null);
+        if (fbx) fbx.animations.forEach(clip => {
+          if (isTPoseClip(clip)) return;
+          fixClipTracks(clip);
+          idleClips.push(clip);
+        });
+      }));
+    }
+
+    setStatus(`${idleClips.length} idle animation(s) ready`, 45);
+
+    // ── 4. Load animate/ FBXs as chat commands ────────────
+    if (animateFiles.length > 0) {
+      let done = 0;
+      await Promise.all(animateFiles.map(async file => {
+        const fbx = await loadFBX('animate/' + file).catch(() => null);
+        if (fbx && fbx.animations.length > 0) {
+          const cmd    = file.replace(/\.fbx$/i, '').toLowerCase().trim();
+          const isLoop = /walk|run|dance|loop/i.test(file);
+          const clip   = fbx.animations[0];
+
+          // Fix Mixamo track names
+          fixClipTracks(clip);
+
+          clip.name = cmd;
+          cmdMap[cmd] = {
+            clip,
+            loop:     isLoop,
+            response: RESPONSES[cmd] || `Playing ${cmd}! ✨`,
+          };
+        }
+        done++;
+        setStatus(
+          `Loading commands… (${done}/${animateFiles.length})`,
+          45 + (done / animateFiles.length) * 50
+        );
+      }));
+    } else {
+      setStatus('No command animations found', 95);
+    }
+
+    // ── 5. Finish UI & start idle ──────────────────────────
+    buildDrawer();
+    enterIdle();
+
+    setStatus('Ready!', 100);
+    setTimeout(() => {
+      document.getElementById('loading-screen').classList.add('fade-out');
+      setTimeout(() => { document.getElementById('loading-screen').style.display = 'none'; }, 650);
+    }, 350);
+
+    appReady = true;
+
+    // Welcome messages
+    setTimeout(() => addMsg("Hi! I'm ready to animate 👋 Type a command below.", 'char'), 900);
+    setTimeout(() => {
+      const cmds = Object.keys(cmdMap);
+      addMsg(
+        cmds.length
+          ? `Loaded commands: ${cmds.join(', ')}`
+          : `No commands yet — drop FBX files into animate/ and reload.`,
+        'sys'
+      );
+    }, 1700);
+
+  } catch (err) {
+    setStatus('Error — check browser console', 0);
+    console.error('[AnimatedChar]', err);
+    addMsg(`Error: ${err.message}`, 'sys');
+  }
+}
+
+main();
+</script>
+</body>
+</html>
