@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "channel": "headbuster",
+  "triggerAnimations": true,
+  "showBadge": true,
+  "commandPrefix": "!",
+  "pusherKey": "32cbd69e4b950bf97679",
+  "pusherCluster": "us2"
+}

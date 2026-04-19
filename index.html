@@ -130,6 +130,12 @@
       background: rgba(99,102,241,0.45);
       border-color: rgba(99,102,241,0.7);
     }
+    .cmd-tilde {
+      color: #a78bfa;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-right: 1px;
+    }
 
     /* Camera controls hint */
     #cam-hint {
@@ -292,6 +298,32 @@
       40% { transform: scale(1.3); opacity: 1; }
     }
 
+    /* ── Kick chat messages ── */
+    .msg.kick {
+      align-self: flex-start;
+      background: rgba(83,252,24,0.07);
+      border: 1px solid rgba(83,252,24,0.22);
+      color: rgba(255,255,255,0.9);
+      border-bottom-left-radius: 4px;
+    }
+    .kick-meta {
+      font-size: 11px;
+      margin-bottom: 3px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .kick-badge {
+      background: #53fc18;
+      color: #000;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 4px;
+      letter-spacing: 0.5px;
+      flex-shrink: 0;
+    }
+
     /* Input area */
     #chat-footer {
       padding: 12px 14px;
@@ -378,6 +410,9 @@
         <div class="header-name">VoxBuddy</div>
         <div class="header-sub">Type a command to animate</div>
       </div>
+      <span id="kick-live" style="display:none; font-size:10px; font-weight:700; color:#53fc18;
+        background:rgba(83,252,24,0.12); border:1px solid rgba(83,252,24,0.3);
+        padding:2px 8px; border-radius:10px; letter-spacing:1px; flex-shrink:0;">KICK LIVE</span>
       <button id="chat-collapse-btn" onclick="toggleChat()" title="Hide chat" style="background:none;border:none;cursor:pointer;color:rgba(255,255,255,0.4);padding:4px;display:flex;align-items:center;transition:color 0.2s;" onmouseover="this.style.color='rgba(255,255,255,0.9)'" onmouseout="this.style.color='rgba(255,255,255,0.4)'">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
@@ -388,7 +423,7 @@
     <div id="chat-footer">
       <div id="cmd-hint-bar">Loading…</div>
       <div id="input-row">
-        <input id="chat-input" type="text" placeholder="Type a command…" autocomplete="off" spellcheck="false">
+        <input id="chat-input" type="text" placeholder="~command or type freely…" autocomplete="off" spellcheck="false">
         <button id="send-btn" onclick="sendMessage()">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
@@ -693,13 +728,88 @@ function hideTyping() {
   if (typingBubble) { typingBubble.remove(); typingBubble = null; }
 }
 
-// Fuzzy command parser: exact → contains → word-prefix
+/* ================================================================
+   KICK CHAT DISPLAY
+   ================================================================ */
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+let kickCfg = null; // populated after /api/config loads
+
+function addKickMessage({ username, content, color }) {
+  // Sanitize the color value — only allow valid CSS colors
+  const safeColor = /^#[0-9a-fA-F]{3,8}$/.test(color) ? color : '#53fc18';
+
+  const el = document.createElement('div');
+  el.className = 'msg kick';
+  el.innerHTML =
+    `<div class="kick-meta">` +
+      `<span class="kick-badge">KICK</span>` +
+      `<span style="color:${safeColor};font-weight:600">${escHtml(username)}</span>` +
+    `</div>` +
+    `${escHtml(content)}`;
+  msgsEl.appendChild(el);
+  scrollBottom();
+
+  // Optionally trigger animations from Kick chat commands
+  if (kickCfg?.triggerAnimations && appReady) {
+    const prefix = kickCfg.commandPrefix || '!';
+    let rawCmd = content.trim();
+    // Strip the prefix (! or ~) if present, otherwise try the message as-is
+    if (rawCmd.startsWith('~') || (prefix && rawCmd.startsWith(prefix))) {
+      rawCmd = rawCmd.replace(/^[~!]/, '').trim();
+    }
+    const cmd = parseCommand(rawCmd);
+    if (cmd) playCmd(cmd);
+  }
+}
+
+function initKickSSE(cfg) {
+  kickCfg = cfg;
+  if (!cfg.enabled) return;
+
+  const es = new EventSource('/api/kick/events');
+
+  es.onmessage = (e) => {
+    let data;
+    try { data = JSON.parse(e.data); } catch { return; }
+
+    if (data.type === 'status') {
+      const badge = document.getElementById('kick-live');
+      badge.style.display = data.connected ? '' : 'none';
+      if (data.connected) {
+        addMsg(`Kick chat connected: #${data.channel}`, 'sys');
+      }
+    } else if (data.type === 'message') {
+      addKickMessage(data);
+    }
+  };
+
+  es.onerror = () => {
+    document.getElementById('kick-live').style.display = 'none';
+    // EventSource retries automatically per the retry: header
+  };
+}
+
+/// Fuzzy command parser: exact → input-in-cmd → cmd-in-input → cmd-contains-input → word-prefix
 function parseCommand(raw) {
   const s    = raw.toLowerCase().trim();
   const cmds = Object.keys(cmdMap);
   if (cmds.includes(s)) return s;
+  // cmd name is a substring of the input (e.g. input "do the wave" contains cmd "wave")
   const found = cmds.find(c => s.includes(c));
   if (found) return found;
+  // input is a substring of the cmd name (e.g. "walk" matches "walking", "kick" matches "mma kick")
+  if (s.length >= 3) {
+    const found2 = cmds.find(c => c.includes(s));
+    if (found2) return found2;
+  }
+  // word prefix: any word of input is a prefix of a cmd (e.g. "wav" → "waving gesture")
   for (const w of s.split(/\s+/)) {
     const fw = cmds.find(c => c.startsWith(w) && w.length >= 2);
     if (fw) return fw;
@@ -708,11 +818,14 @@ function parseCommand(raw) {
 }
 
 window.sendMessage = function () {
-  const text = inputEl.value.trim();
-  if (!text || !appReady) return;
+  const raw  = inputEl.value.trim();
+  if (!raw || !appReady) return;
   inputEl.value = '';
-  addMsg(text, 'user');
+  addMsg(raw, 'user');
   showTyping();
+
+  // Strip leading ~ or ! prefix before parsing
+  const text = raw.replace(/^[~!]/, '').trim();
 
   setTimeout(() => {
     hideTyping();
@@ -724,12 +837,12 @@ window.sendMessage = function () {
       return;
     }
 
-    // Built-in: "!commands" lists all available commands
-    if (/^!commands?$/i.test(text)) {
+    // Built-in: "~commands" or "!commands" lists all available commands
+    if (/^commands?$/i.test(text)) {
       const cmds = Object.keys(cmdMap);
       addMsg(
         cmds.length
-          ? `Available commands:\n${cmds.map(cmdLabel).join(', ')}`
+          ? `Available commands:\n${cmds.map(c => '~' + cmdLabel(c)).join(', ')}`
           : 'No commands loaded — add FBX files to animate/ and reload.',
         'sys'
       );
@@ -756,9 +869,14 @@ inputEl.addEventListener('keydown', e => { if (e.key === 'Enter') window.sendMes
 /* ================================================================
    COMMANDS DRAWER
    ================================================================ */
-// Turn a command key into a readable label: "standing walk" → "Standing Walk"
+/// Turn a command key into a readable label: "standing walk" → "Standing Walk"
 function cmdLabel(cmd) {
   return cmd.replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// Chip HTML with a styled ~ prefix
+function cmdChipHTML(cmd) {
+  return `<span class="cmd-tilde">~</span>${cmdLabel(cmd)}`;
 }
 
 function buildDrawer() {
@@ -777,8 +895,8 @@ function buildDrawer() {
     cmds.forEach(cmd => {
       const chip = document.createElement('div');
       chip.className   = 'cmd-chip';
-      chip.textContent = cmdLabel(cmd);
-      chip.title       = cmd;
+      chip.innerHTML   = cmdChipHTML(cmd);
+      chip.title       = '~' + cmd;
       chip.onclick = () => {
         inputEl.value = cmd;
         window.sendMessage();
@@ -788,8 +906,8 @@ function buildDrawer() {
     });
   }
 
-  hintBar.textContent = cmds.length
-    ? `Commands: ${cmds.map(cmdLabel).join(', ')}`
+  hintBar.innerHTML = cmds.length
+    ? `${cmds.map(c => `<span class="cmd-tilde">~</span>${cmdLabel(c)}`).join('<span style="color:rgba(255,255,255,0.15)"> · </span>')}`
     : 'No commands loaded — add FBX files to animate/';
 }
 
@@ -922,6 +1040,12 @@ async function main() {
     }, 350);
 
     appReady = true;
+
+    // Kick chat integration
+    fetch('/api/config')
+      .then(r => r.json())
+      .then(cfg => { if (cfg?.kick) initKickSSE(cfg.kick); })
+      .catch(() => {}); // non-fatal if config endpoint unavailable
 
     // Welcome messages
     setTimeout(() => addMsg("Hi! I'm ready to animate 👋 Type a command below.", 'char'), 900);
